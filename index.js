@@ -3,7 +3,6 @@ const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, getDocs, addDoc } = require('firebase/firestore');
 
 // ⚠️ ENTER YOUR PHONE NUMBER HERE (With Country Code, NO '+')
-// Example for India: '919876543210'
 const YOUR_PHONE_NUMBER = '919863847661'; 
 
 // Firebase Setup
@@ -19,19 +18,22 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Initialize WhatsApp specifically for GitHub Actions
+// Initialize WhatsApp with VIRTUAL MONITOR settings
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: { 
-        headless: true,
+        headless: false, // <--- THIS IS THE MAGIC FIX. (False makes it act like a real PC)
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage', 
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
             '--disable-gpu'
         ] 
     },
-    // Adding a real browser User-Agent prevents WhatsApp from blocking the login
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 });
 
@@ -41,23 +43,18 @@ client.on('qr', async () => {
     if (!pairingCodeRequested) {
         pairingCodeRequested = true;
         console.log('\n=========================================================');
-        console.log('⏳ REQUESTING PAIRING CODE FROM WHATSAPP...');
+        console.log('⏳ REQUESTING PAIRING CODE... (Please wait 5 seconds)');
         
-        try {
-            // Wait 2 seconds for WhatsApp connection to settle
-            setTimeout(async () => {
+        // Delay ensures WhatsApp page is fully loaded before requesting code
+        setTimeout(async () => {
+            try {
                 const code = await client.requestPairingCode(YOUR_PHONE_NUMBER);
                 console.log('\n🌟 YOUR PAIRING CODE IS: ' + code);
-                console.log('\n📱 HOW TO LINK:');
-                console.log('1. Open WhatsApp on your phone.');
-                console.log('2. Tap Settings / 3-dots -> Linked Devices -> Link a device.');
-                console.log('3. Tap "Link with phone number instead" (at the bottom).');
-                console.log('4. Enter the 8-letter code above!');
                 console.log('=========================================================\n');
-            }, 2000);
-        } catch (error) {
-            console.error('❌ Error requesting pairing code:', error);
-        }
+            } catch (error) {
+                console.error('❌ Error requesting pairing code:', error);
+            }
+        }, 5000); 
     }
 });
 
