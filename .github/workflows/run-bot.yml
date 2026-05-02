@@ -1,7 +1,7 @@
 name: Run WhatsApp Bot
 
 on:
-  workflow_dispatch: # This allows you to start the bot manually with a button click
+  workflow_dispatch: 
 
 jobs:
   run-bot:
@@ -18,8 +18,8 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Install Browser packages for WhatsApp
-        run: sudo apt-get install -y libgbm-dev wget gnupg ca-certificates
+      - name: Install Virtual Display & Browser packages
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0 libgtk-3-0
 
-      - name: Start WhatsApp Bot
-        run: node index.js
+      - name: Start WhatsApp Bot with Virtual Monitor
+        run: xvfb-run --auto-servernum node index.js
