@@ -2,10 +2,9 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, getDocs, addDoc } = require('firebase/firestore');
 
-// ⚠️ ENTER YOUR PHONE NUMBER HERE (With Country Code, NO '+')
+// ⚠️ ENTER YOUR PHONE NUMBER HERE (Country Code + Number, NO '+')
 const YOUR_PHONE_NUMBER = '919863847661'; 
 
-// Firebase Setup
 const firebaseConfig = {
     apiKey: "AIzaSyB7-AfV89E0OmX9jIKvhyif_Id2ivxFIs4",
     authDomain: "vido-call-bd1b3.firebaseapp.com",
@@ -18,11 +17,15 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Initialize WhatsApp with VIRTUAL MONITOR settings
+// Initialize WhatsApp with VIRTUAL MONITOR + STEALTH MODE
 const client = new Client({
     authStrategy: new LocalAuth(),
+    webVersionCache: {
+        type: 'none' // CRITICAL: Forces fresh WhatsApp version so phone doesn't reject it
+    },
     puppeteer: { 
-        headless: false, // <--- THIS IS THE MAGIC FIX. (False makes it act like a real PC)
+        headless: false,
+        defaultViewport: null,
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox',
@@ -31,7 +34,10 @@ const client = new Client({
             '--no-first-run',
             '--no-zygote',
             '--single-process',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-blink-features=AutomationControlled', // 🛡️ HIDES BOT STATUS FROM WHATSAPP
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
         ] 
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -43,9 +49,9 @@ client.on('qr', async () => {
     if (!pairingCodeRequested) {
         pairingCodeRequested = true;
         console.log('\n=========================================================');
-        console.log('⏳ REQUESTING PAIRING CODE... (Please wait 5 seconds)');
+        console.log('⏳ REQUESTING PAIRING CODE... (Please wait 8 seconds)');
         
-        // Delay ensures WhatsApp page is fully loaded before requesting code
+        // Wait longer to ensure WebSocket connection is perfectly stable
         setTimeout(async () => {
             try {
                 const code = await client.requestPairingCode(YOUR_PHONE_NUMBER);
@@ -53,8 +59,9 @@ client.on('qr', async () => {
                 console.log('=========================================================\n');
             } catch (error) {
                 console.error('❌ Error requesting pairing code:', error);
+                pairingCodeRequested = false; // Allow retry if failed
             }
-        }, 5000); 
+        }, 8000); 
     }
 });
 
