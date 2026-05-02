@@ -3,7 +3,7 @@ const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, getDocs, addDoc } = require('firebase/firestore');
 
 // ⚠️ ENTER YOUR PHONE NUMBER HERE (Country Code + Number, NO '+')
-const YOUR_PHONE_NUMBER = '919863847661'; 
+const YOUR_PHONE_NUMBER = '916002779504'; 
 
 const firebaseConfig = {
     apiKey: "AIzaSyB7-AfV89E0OmX9jIKvhyif_Id2ivxFIs4",
