@@ -21,15 +21,26 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: { 
         headless: true,
-        args:['--no-sandbox', '--disable-setuid-sandbox'] // REQUIRED FOR GITHUB ACTIONS
+        args:[
+            '--no-sandbox', 
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', // Extra stability for GitHub Actions
+            '--disable-gpu'
+        ] 
     }
 });
 
 client.on('qr', (qr) => {
+    // Generate a Web URL for the QR code
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`;
+    
+    console.log('\n=========================================================');
+    console.log('🔗 TERMINAL QR WONT SCAN? CLICK THE LINK BELOW INSTEAD:');
+    console.log(qrUrl);
+    console.log('=========================================================\n');
+    
+    // Still output the terminal one just in case
     qrcode.generate(qr, { small: true });
-    console.log('=========================================');
-    console.log('📱 SCAN THE QR CODE ABOVE IN YOUR WHATSAPP!');
-    console.log('=========================================');
 });
 
 client.on('ready', () => {
