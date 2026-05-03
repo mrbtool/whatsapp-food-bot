@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 
 // 🌟 SECURE FIREBASE URL FROM GITHUB SECRETS 🌟
@@ -41,18 +40,22 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser:["S", "K", "1"] 
+        browser: ["S", "K", "1"] 
     });
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
+            // 🌟 UPDATED: Generate a Clickable QR Code URL instead of Terminal output 🌟
+            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qr)}`;
+            
             console.clear(); 
             console.log('\n==================================================');
-            console.log('⚠️ QR CODE TOO BIG? CLICK "View raw logs" in top right!');
+            console.log('🔗 SCAN THIS QR CODE TO LOGIN:');
+            console.log('Click or copy the link below in your browser:');
+            console.log(qrImageUrl);
             console.log('==================================================\n');
-            qrcode.generate(qr, { small: true }); 
         }
 
         if (connection === 'open') console.log('✅ JAVAGOAT AI IS ONLINE!');
