@@ -1,22 +1,10 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const readline = require('readline');
 
 // 🌟 SECURE FIREBASE URL FROM GITHUB SECRETS 🌟
 const FIREBASE_URL = process.env.FIREBASE_URL;
 
 const orderStates = {}; 
-
-// Helper function to read terminal input (Phone Number)
-const question = (text) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => {
-        rl.question(text, (answer) => {
-            rl.close();
-            resolve(answer);
-        });
-    });
-};
 
 // Function to fetch the dynamic menu from your App's Firebase
 async function getMenuFromApp() {
@@ -25,7 +13,7 @@ async function getMenuFromApp() {
         const data = await response.json();
         if (!data) return[];
         
-        // Convert Firebase object into an array (now includes imageUrl)
+        // Convert Firebase object into an array
         return Object.keys(data).map(key => ({
             id: key,
             name: data[key].name,
@@ -44,6 +32,9 @@ async function startBot() {
         process.exit(1);
     }
 
+    // 👇 ENTER YOUR BOT PHONE NUMBER HERE (With Country Code, No '+') 👇
+    const BOT_NUMBER = "919863847661"; 
+
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -52,15 +43,15 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // For pairing codes, it's recommended to use a standard browser profile
+        // Standard browser profile required for pairing codes
         browser:["Ubuntu", "Chrome", "20.0.04"] 
     });
 
-    // 🌟 REQUEST PAIRING CODE IF NOT LOGGED IN 🌟
+    // 🌟 AUTOMATICALLY REQUEST PAIRING CODE USING HARDCODED NUMBER 🌟
     if (!sock.authState.creds.registered) {
-        console.log('\n==================================================');
-        const phoneNumber = await question('📱 Enter your Bot WhatsApp Number (with country code, e.g. 919876543210): ');
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, ''); // Remove any +, spaces, or dashes
+        const cleanNumber = BOT_NUMBER.replace(/[^0-9]/g, ''); // Ensure no spaces/symbols
+        
+        console.log(`\n⏳ Requesting pairing code for: +${cleanNumber}...`);
         
         setTimeout(async () => {
             try {
@@ -70,7 +61,7 @@ async function startBot() {
                 console.log(`🔑 YOUR PAIRING CODE IS: ${code}`);
                 console.log('==================================================');
                 console.log(`📌 Steps to link:`);
-                console.log(`1. Open WhatsApp on your phone.`);
+                console.log(`1. Open WhatsApp on your phone (+${cleanNumber}).`);
                 console.log(`2. Tap 3 dots (Menu) > Linked Devices > Link a Device.`);
                 console.log(`3. Tap "Link with phone number instead" at the bottom.`);
                 console.log(`4. Enter the code above.`);
@@ -78,7 +69,7 @@ async function startBot() {
             } catch (err) {
                 console.log('❌ Error requesting pairing code:', err.message);
             }
-        }, 2000);
+        }, 3000); // 3-second delay to ensure connection is ready
     }
 
     sock.ev.on('connection.update', (update) => {
