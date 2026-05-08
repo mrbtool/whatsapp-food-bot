@@ -6,6 +6,10 @@ const FIREBASE_URL = process.env.FIREBASE_URL;
 
 const orderStates = {}; 
 
+// Tracker for repeated messages (Anti-Spam)
+const userSpamTracker = {};
+const SPAM_RESET_TIME_MS = 60 * 1000; // 1 minute window for tracking messages
+
 // Function to fetch the dynamic menu from your App's Firebase
 async function getMenuFromApp() {
     try {
@@ -40,14 +44,17 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["S", "K", "1"] 
+        browser: ["S", "K", "1"],
+        // 🌟 CHANGE 2: PREVENT LOGIN EXPIRE & CONNECTION DROPS 🌟
+        keepAliveIntervalMs: 30000,   // Sends ping every 30s to keep connection alive indefinitely
+        markOnlineOnConnect: true,    // Keeps the bot marked as online
+        defaultQueryTimeoutMs: 60000  // Prevents sudden timeouts
     });
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            // 🌟 UPDATED: Generate a Clickable QR Code URL instead of Terminal output 🌟
             const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qr)}`;
             
             console.clear(); 
@@ -61,7 +68,14 @@ async function startBot() {
         if (connection === 'open') console.log('✅ MRBUSH AI IS ONLINE!');
         if (connection === 'close') {
             const reason = lastDisconnect?.error?.output?.statusCode;
-            if (reason !== DisconnectReason.loggedOut) startBot();
+            
+            // Reconnect automatically if it's not a manual logout
+            if (reason !== DisconnectReason.loggedOut) {
+                console.log('⚠️ Connection lost, reconnecting safely...');
+                setTimeout(startBot, 3000); // 3-second delay prevents crash loops
+            } else {
+                console.log('❌ Device Logged Out. Please delete the "session_data" folder and scan the QR again.');
+            }
         }
     });
 
@@ -76,6 +90,35 @@ async function startBot() {
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
         console.log(`📩 Query: ${text}`);
+
+        // --- 🌟 CHANGE 1: SPAM/MESSAGE COUNTER LOGIC 🌟 ---
+        const now = Date.now();
+        if (!userSpamTracker[sender]) {
+            userSpamTracker[sender] = { count: 1, lastMessage: now };
+        } else {
+            // Reset the counter if they haven't sent a message for 1 minute
+            if (now - userSpamTracker[sender].lastMessage > SPAM_RESET_TIME_MS) {
+                userSpamTracker[sender].count = 1;
+            } else {
+                userSpamTracker[sender].count++;
+            }
+            userSpamTracker[sender].lastMessage = now;
+        }
+
+        const msgCount = userSpamTracker[sender].count;
+        
+        // If they send 3 or 4 messages rapidly
+        if (msgCount === 3 || msgCount === 4) {
+            await sock.sendMessage(sender, { 
+                text: "ka·sa pa·e na·a changni chang message ka·anabe emergency nangode call ka·bo!" 
+            });
+            return; // Block processing of this current message
+        } 
+        // If they keep spamming (5+ messages), ignore them silently until 1-minute timeout resets
+        else if (msgCount > 4) {
+            return; 
+        }
+        // --------------------------------------------------
 
         // --- 🛒 STEP 2: FINISH ORDER & SEND TO ADMIN PANEL ---
         if (orderStates[sender]?.step === 'WAITING_FOR_ADDRESS') {
@@ -134,7 +177,7 @@ async function startBot() {
 
             orderStates[sender] = { step: 'WAITING_FOR_ADDRESS', item: matchedItem };
             
-            // 🌟 NEW: SEND PRODUCT IMAGE + ASK FOR PHONE NUMBER 🌟
+            // SEND PRODUCT IMAGE + ASK FOR PHONE NUMBER
             const captionText = `🛒 *Order Started!* \n\nYou selected: *${matchedItem.name}* (₹${matchedItem.price})\n\nPlease reply with your *Full Name, Phone Number, and Delivery Address*.`;
             
             // If the product has an image URL in Firebase, send it as a WhatsApp Photo
@@ -172,17 +215,17 @@ async function startBot() {
 
         // --- GREETINGS ---
         else if (text.includes("hi") || text.includes("hello") || text.includes("hey")) {
-await sock.sendMessage(sender, { 
-  text: "📱 *Mr Bush-ona Rimchaksoa!* \n\nAnga nang·ni bostu breanio dakchakgipa AI ong·a. Smartphone-rang, accessories aro nambatgipa deal-rangko nina gita *menu* ine type ka·bo, ba bakbak order ka·na gita *buy[phone-ni biming]* ine type ka·bo!"
-});
+            await sock.sendMessage(sender, { 
+              text: "📱 *Hi i am Walter security guard!* \n\nDa·o WALTER dongja bia ia message ko nikode reply ka·aigen jajrengna·be!"
+            });
         }
         else if (text.includes("contact") || text.includes("call")) {
             await sock.sendMessage(sender, { text: "📞 *Contact MrBush:* \n\n- *Email:* support@mrbush.com" });
         }
         else {
-await sock.sendMessage(sender, { 
-  text: "🤔 Anga nang·ni chat-ko name ma·sija.\n\nChingni bosturangko nina gita *menu* ine type ka·bo, ba order ka·na gita *buy [phone-ni biming]* ine type ka·bo!" 
-});
+            await sock.sendMessage(sender, { 
+              text: "🤔 Hello anga Walter ni AI assistant.\n\nDa·o Angni Boss dongja jeni somoioba angni Boss ia message ko nikode reply ka·aigen jajrengna·be!" 
+            });
         }
     });
 }
