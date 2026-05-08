@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
 // 🌟 SECURE FIREBASE URL FROM GITHUB SECRETS 🌟
@@ -13,6 +13,7 @@ async function getMenuFromApp() {
         const data = await response.json();
         if (!data) return[];
         
+        // Convert Firebase object into an array (now includes imageUrl)
         return Object.keys(data).map(key => ({
             id: key,
             name: data[key].name,
@@ -31,10 +32,6 @@ async function startBot() {
         process.exit(1);
     }
 
-    // 👇 ENTER YOUR BOT PHONE NUMBER HERE (With Country Code, No '+' or spaces) 👇
-    // Example for India: "919876543210"
-    const BOT_NUMBER = "919863847661"; 
-
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -43,52 +40,28 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // 🌟 FIXED BROWSER PROFILE: This forces WhatsApp to recognize it as a legitimate desktop login
-        browser: Browsers.macOS('Desktop'),
-        syncFullHistory: false
+        browser: ["S", "K", "1"] 
     });
 
-    // 🌟 AUTOMATICALLY REQUEST PAIRING CODE USING HARDCODED NUMBER 🌟
-    if (!sock.authState.creds.registered) {
-        const cleanNumber = BOT_NUMBER.replace(/[^0-9]/g, ''); // Ensure pure numbers
-        
-        console.log(`\n⏳ Booting up... Preparing to link +${cleanNumber}`);
-        
-        // 🌟 INCREASED DELAY: Wait 6 seconds to ensure WebSocket to WhatsApp is completely open
-        setTimeout(async () => {
-            try {
-                console.log(`⏳ Requesting code from WhatsApp servers...`);
-                let code = await sock.requestPairingCode(cleanNumber);
-                code = code?.match(/.{1,4}/g)?.join("-") || code; // Format as XXXX-XXXX
-                
-                console.log('\n==================================================');
-                console.log(`🔑 YOUR PAIRING CODE IS: ${code}`);
-                console.log('==================================================');
-                console.log(`📌 Steps to link:`);
-                console.log(`1. Open WhatsApp on the phone with number +${cleanNumber}`);
-                console.log(`2. Tap 3 dots (Menu) > Linked Devices > Link a Device.`);
-                console.log(`3. Tap "Link with phone number instead" at the bottom.`);
-                console.log(`4. Enter the code above.`);
-                console.log('==================================================\n');
-            } catch (err) {
-                console.log('❌ Error requesting pairing code:', err.message);
-                console.log('👉 Tip: Ensure you deleted the "session_data" folder before running this!');
-            }
-        }, 6000); 
-    }
-
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            // 🌟 UPDATED: Generate a Clickable QR Code URL instead of Terminal output 🌟
+            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qr)}`;
+            
+            console.clear(); 
+            console.log('\n==================================================');
+            console.log('🔗 SCAN THIS QR CODE TO LOGIN:');
+            console.log('Click or copy the link below in your browser:');
+            console.log(qrImageUrl);
+            console.log('==================================================\n');
+        }
 
         if (connection === 'open') console.log('✅ MRBUSH AI IS ONLINE!');
         if (connection === 'close') {
             const reason = lastDisconnect?.error?.output?.statusCode;
-            if (reason !== DisconnectReason.loggedOut) {
-                console.log('🔄 Reconnecting...');
-                startBot();
-            } else {
-                console.log('❌ Logged out. Please delete the "session_data" folder and restart.');
-            }
+            if (reason !== DisconnectReason.loggedOut) startBot();
         }
     });
 
@@ -97,23 +70,25 @@ async function startBot() {
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
-        if (msg.key.fromMe) return; 
+        if (msg.key.fromMe) return; // Loop Protection
 
         const sender = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
         console.log(`📩 Query: ${text}`);
 
+        // --- 🛒 STEP 2: FINISH ORDER & SEND TO ADMIN PANEL ---
         if (orderStates[sender]?.step === 'WAITING_FOR_ADDRESS') {
-            const customerDetails = text; 
+            const customerDetails = text; // This now contains Name, Phone, and Address
             const item = orderStates[sender].item;
             const customerWaNumber = sender.split('@')[0];
 
+            // Match the exact format of your MrBush Admin Panel
             const mrBushOrder = {
                 userId: "whatsapp_" + customerWaNumber,
                 userEmail: "whatsapp@mrbush.com",
-                phone: customerWaNumber, 
-                address: customerDetails, 
+                phone: customerWaNumber, // Keeps their WA number registered
+                address: customerDetails, // Saves Name, Phone, and Address typed by them
                 location: { lat: 0, lng: 0 },
                 items:[{
                     id: item.id,
@@ -122,12 +97,13 @@ async function startBot() {
                     img: item.imageUrl || "",
                     quantity: 1
                 }],
-                total: (parseFloat(item.price) + 50).toFixed(2), 
+                total: (parseFloat(item.price) + 50).toFixed(2), // Price + 50 Delivery Fee
                 status: "Placed",
                 method: "Cash on Delivery (WhatsApp)",
                 timestamp: new Date().toISOString()
             };
 
+            // Save order securely via REST API
             try {
                 await fetch(`${FIREBASE_URL}/orders.json`, {
                     method: 'POST',
@@ -138,14 +114,17 @@ async function startBot() {
                 console.log("Firebase Error: ", error);
             }
 
-            await sock.sendMessage(sender, { text: `✅ *Order Placed Successfully!* \n\nThank you! Your order for *${item.name}* is being prepared. \n\n*Total:* ₹${mrBushOrder.total} (Inc. Delivery)\n*Phone Linked:* +${customerWaNumber}\n*Status:* Preparing\n\nWe will deliver it to your address soon.` });
+            await sock.sendMessage(sender, { text: `✅ *Order Placed Successfully!* \n\nThank you! Your order for *${item.name}* is being prepared. \n\n*Total:* ₹${mrBushOrder.total} (Inc. Delivery)\n*Status:* Preparing\n\nWe will deliver it to your address soon.` });
             delete orderStates[sender]; 
             return;
         }
 
+        // --- 🌟 STEP 1: START ORDER FLOW (WITH IMAGE & PHONE REQUEST) ---
         if (text.startsWith("order ")) {
             const productRequested = text.replace("order ", "").trim().toLowerCase();
             const currentMenu = await getMenuFromApp();
+            
+            // Search the live database for the requested item
             const matchedItem = currentMenu.find(item => item.name.toLowerCase().includes(productRequested));
 
             if (!matchedItem) {
@@ -155,17 +134,25 @@ async function startBot() {
 
             orderStates[sender] = { step: 'WAITING_FOR_ADDRESS', item: matchedItem };
             
-            const captionText = `🛒 *Order Started!* \n\nYou selected: *${matchedItem.name}* (₹${matchedItem.price})\n\n📍 Please reply with your *Full Name and Delivery Address*.\n_(We will automatically use your WhatsApp number to contact you)_`;
+            // 🌟 NEW: SEND PRODUCT IMAGE + ASK FOR PHONE NUMBER 🌟
+            const captionText = `🛒 *Order Started!* \n\nYou selected: *${matchedItem.name}* (₹${matchedItem.price})\n\nPlease reply with your *Full Name, Phone Number, and Delivery Address*.`;
             
+            // If the product has an image URL in Firebase, send it as a WhatsApp Photo
             if (matchedItem.imageUrl) {
-                await sock.sendMessage(sender, { image: { url: matchedItem.imageUrl }, caption: captionText });
+                await sock.sendMessage(sender, { 
+                    image: { url: matchedItem.imageUrl }, 
+                    caption: captionText 
+                });
             } else {
+                // Fallback if no image is found
                 await sock.sendMessage(sender, { text: captionText });
             }
         }
         else if (text === "order") { 
             await sock.sendMessage(sender, { text: "🛒 *How to order:* \nPlease type 'order' followed by the dish name. \nExample: *order pizza*" });
         }
+        
+        // --- DYNAMIC MENU FEATURE ---
         else if (text.includes("menu") || text.includes("price") || text.includes("list") || text.includes("food")) {
             const currentMenu = await getMenuFromApp();
             
@@ -182,14 +169,20 @@ async function startBot() {
             
             await sock.sendMessage(sender, { text: menuMessage });
         }
+
+        // --- GREETINGS ---
         else if (text.includes("hi") || text.includes("hello") || text.includes("hey")) {
-            await sock.sendMessage(sender, { text: "👋 *Welcome to MrBush!* \n\nI am your AI Assistant. Type *menu* to see our delicious food, or type *order[dish]* to buy instantly!" });
+await sock.sendMessage(sender, { 
+  text: "📱 *Mr Bush-ona Rimchaksoa!* \n\nAnga nang·ni bostu breanio dakchakgipa AI ong·a. Smartphone-rang, accessories aro nambatgipa deal-rangko nina gita *menu* ine type ka·bo, ba bakbak order ka·na gita *buy[phone-ni biming]* ine type ka·bo!"
+});
         }
         else if (text.includes("contact") || text.includes("call")) {
             await sock.sendMessage(sender, { text: "📞 *Contact MrBush:* \n\n- *Email:* support@mrbush.com" });
         }
         else {
-            await sock.sendMessage(sender, { text: "🤔 I didn't quite catch that.\n\nType *menu* to see our food list, or *order [food]* to place an order!" });
+await sock.sendMessage(sender, { 
+  text: "🤔 Anga nang·ni chat-ko name ma·sija.\n\nChingni bosturangko nina gita *menu* ine type ka·bo, ba order ka·na gita *buy [phone-ni biming]* ine type ka·bo!" 
+});
         }
     });
 }
