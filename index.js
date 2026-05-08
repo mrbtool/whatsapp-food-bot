@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
 // 🌟 SECURE FIREBASE URL FROM GITHUB SECRETS 🌟
@@ -13,7 +13,6 @@ async function getMenuFromApp() {
         const data = await response.json();
         if (!data) return[];
         
-        // Convert Firebase object into an array
         return Object.keys(data).map(key => ({
             id: key,
             name: data[key].name,
@@ -32,7 +31,8 @@ async function startBot() {
         process.exit(1);
     }
 
-    // 👇 ENTER YOUR BOT PHONE NUMBER HERE (With Country Code, No '+') 👇
+    // 👇 ENTER YOUR BOT PHONE NUMBER HERE (With Country Code, No '+' or spaces) 👇
+    // Example for India: "919876543210"
     const BOT_NUMBER = "919863847661"; 
 
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
@@ -43,33 +43,38 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // Standard browser profile required for pairing codes
-        browser:["Ubuntu", "Chrome", "20.0.04"] 
+        // 🌟 FIXED BROWSER PROFILE: This forces WhatsApp to recognize it as a legitimate desktop login
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false
     });
 
     // 🌟 AUTOMATICALLY REQUEST PAIRING CODE USING HARDCODED NUMBER 🌟
     if (!sock.authState.creds.registered) {
-        const cleanNumber = BOT_NUMBER.replace(/[^0-9]/g, ''); // Ensure no spaces/symbols
+        const cleanNumber = BOT_NUMBER.replace(/[^0-9]/g, ''); // Ensure pure numbers
         
-        console.log(`\n⏳ Requesting pairing code for: +${cleanNumber}...`);
+        console.log(`\n⏳ Booting up... Preparing to link +${cleanNumber}`);
         
+        // 🌟 INCREASED DELAY: Wait 6 seconds to ensure WebSocket to WhatsApp is completely open
         setTimeout(async () => {
             try {
+                console.log(`⏳ Requesting code from WhatsApp servers...`);
                 let code = await sock.requestPairingCode(cleanNumber);
                 code = code?.match(/.{1,4}/g)?.join("-") || code; // Format as XXXX-XXXX
+                
                 console.log('\n==================================================');
                 console.log(`🔑 YOUR PAIRING CODE IS: ${code}`);
                 console.log('==================================================');
                 console.log(`📌 Steps to link:`);
-                console.log(`1. Open WhatsApp on your phone (+${cleanNumber}).`);
+                console.log(`1. Open WhatsApp on the phone with number +${cleanNumber}`);
                 console.log(`2. Tap 3 dots (Menu) > Linked Devices > Link a Device.`);
                 console.log(`3. Tap "Link with phone number instead" at the bottom.`);
                 console.log(`4. Enter the code above.`);
                 console.log('==================================================\n');
             } catch (err) {
                 console.log('❌ Error requesting pairing code:', err.message);
+                console.log('👉 Tip: Ensure you deleted the "session_data" folder before running this!');
             }
-        }, 3000); // 3-second delay to ensure connection is ready
+        }, 6000); 
     }
 
     sock.ev.on('connection.update', (update) => {
@@ -82,7 +87,7 @@ async function startBot() {
                 console.log('🔄 Reconnecting...');
                 startBot();
             } else {
-                console.log('❌ Logged out. Please delete the session_data folder and restart.');
+                console.log('❌ Logged out. Please delete the "session_data" folder and restart.');
             }
         }
     });
@@ -92,14 +97,13 @@ async function startBot() {
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
-        if (msg.key.fromMe) return; // Loop Protection
+        if (msg.key.fromMe) return; 
 
         const sender = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
 
         console.log(`📩 Query: ${text}`);
 
-        // --- 🛒 STEP 2: FINISH ORDER & SEND TO ADMIN PANEL ---
         if (orderStates[sender]?.step === 'WAITING_FOR_ADDRESS') {
             const customerDetails = text; 
             const item = orderStates[sender].item;
@@ -139,11 +143,9 @@ async function startBot() {
             return;
         }
 
-        // --- 🌟 STEP 1: START ORDER FLOW ---
         if (text.startsWith("order ")) {
             const productRequested = text.replace("order ", "").trim().toLowerCase();
             const currentMenu = await getMenuFromApp();
-            
             const matchedItem = currentMenu.find(item => item.name.toLowerCase().includes(productRequested));
 
             if (!matchedItem) {
@@ -156,10 +158,7 @@ async function startBot() {
             const captionText = `🛒 *Order Started!* \n\nYou selected: *${matchedItem.name}* (₹${matchedItem.price})\n\n📍 Please reply with your *Full Name and Delivery Address*.\n_(We will automatically use your WhatsApp number to contact you)_`;
             
             if (matchedItem.imageUrl) {
-                await sock.sendMessage(sender, { 
-                    image: { url: matchedItem.imageUrl }, 
-                    caption: captionText 
-                });
+                await sock.sendMessage(sender, { image: { url: matchedItem.imageUrl }, caption: captionText });
             } else {
                 await sock.sendMessage(sender, { text: captionText });
             }
@@ -167,8 +166,6 @@ async function startBot() {
         else if (text === "order") { 
             await sock.sendMessage(sender, { text: "🛒 *How to order:* \nPlease type 'order' followed by the dish name. \nExample: *order pizza*" });
         }
-        
-        // --- DYNAMIC MENU FEATURE ---
         else if (text.includes("menu") || text.includes("price") || text.includes("list") || text.includes("food")) {
             const currentMenu = await getMenuFromApp();
             
@@ -185,8 +182,6 @@ async function startBot() {
             
             await sock.sendMessage(sender, { text: menuMessage });
         }
-
-        // --- GREETINGS ---
         else if (text.includes("hi") || text.includes("hello") || text.includes("hey")) {
             await sock.sendMessage(sender, { text: "👋 *Welcome to MrBush!* \n\nI am your AI Assistant. Type *menu* to see our delicious food, or type *order[dish]* to buy instantly!" });
         }
